@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="sw">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mfumo wa Usimamizi wa Duka</title>
+    <!-- Kuunganisha Supabase CDN -->
+    <script src="https://jsdelivr.net"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f9; }
+        .container { max-width: 800px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        h1, h2 { color: #333; text-align: center; }
+        .menu { display: flex; justify-content: space-around; background: #007bff; padding: 10px; border-radius: 5px; margin-bottom: 20px; }
+        .menu a { color: white; text-decoration: none; font-weight: bold; cursor: pointer; }
+        .section { display: none; }
+        .active { display: block; }
+        form { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
+        input, select, button { padding: 10px; font-size: 16px; border: 1px solid #ccc; border-radius: 4px; }
+        button { background: #28a745; color: white; border: none; cursor: pointer; }
+        button:hover { background: #218838; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Mfumo wa Duka (Smart Store)</h1>
+    
+    <div class="menu">
+        <a onclick="showSection('stoki-sec')">Stoki</a>
+        <a onclick="showSection('mauzo-sec')">Mauzo</a>
+        <a onclick="showSection('madeni-sec')">Madeni</a>
+    </div>
+
+    <!-- SEHEMU YA STOKI -->
+    <div id="stoki-sec" class="section active">
+        <h2>Usimamizi wa Stoki</h2>
+        <form id="stokiForm">
+            <input type="text" id="jinaBidhaa" placeholder="Jina la Bidhaa" required>
+            <input type="number" id="idadi" placeholder="Idadi Iliyopo" required>
+            <input type="number" step="0.01" id="beiNunuzi" placeholder="Bei ya Kununulia" required>
+            <input type="number" step="0.01" id="beiUzia" placeholder="Bei ya Kuuzia" required>
+            <button type="submit">Ongeza Bidhaa</button>
+        </form>
+        <h3>Bidhaa Zilizopo</h3>
+        <table id="stokiTable">
+            <thead>
+                <tr>
+                    <th>ID</th><th>Bidhaa</th><th>Idadi</th><th>Bei Nunuzi</th><th>Bei Uzia</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <!-- SEHEMU YA MAUZO -->
+    <div id="mauzo-sec" class="section">
+        <h2>Rekodi za Mauzo</h2>
+        <table id="mauzoTable">
+            <thead>
+                <tr>
+                    <th>ID</th><th>Bidhaa</th><th>Idadi</th><th>Jumla</th><th>Faida</th><th>Tarehe</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <!-- SEHEMU YA MADENI -->
+    <div id="madeni-sec" class="section">
+        <h2>Usimamizi wa Madeni</h2>
+        <table id="madeniTable">
+            <thead>
+                <tr>
+                    <th>ID</th><th>Mteja</th><th>Kiwango</th><th>Hali</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    // Sanidi Supabase na funguo zako rasmi
+    const SUPABASE_URL = "https://supabase.co";
+    const SUPABASE_ANON_KEY = "sb_publishable_h-pZ25jld8ovGxK_j92f0w_c6hWXfHe"; 
+
+    const supabase = Supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // Badilisha kurasa (Tabs)
+    function showSection(id) {
+        document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+        document.getElementById(id).classList.add('active');
+        if(id === 'stoki-sec') pakuaStoki();
+    }
+
+    // Pakua data za stoki kutoka Supabase
+    async function pakuaStoki() {
+        const { data, error } = await supabase.from('stoki').select('*');
+        if (error) console.error(error);
+        else {
+            const tbody = document.querySelector('#stokiTable tbody');
+            tbody.innerHTML = '';
+            data.forEach(b => {
+                tbody.innerHTML += `<tr>
+                    <td>${b.id}</td>
+                    <td>${b.jina_la_bidhaa}</td>
+                    <td>${b.idadi_iliyopo}</td>
+                    <td>${b.bei_ya_kununulia}</td>
+                    <td>${b.bei_ya_kuuzia}</td>
+                </tr>`;
+            });
+        }
+    }
+
+    // Ongeza bidhaa mpya kwenye stoki
+    document.getElementById('stokiForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const jina = document.getElementById('jinaBidhaa').value;
+        const idadi = document.getElementById('idadi').value;
+        const beiN = document.getElementById('beiNunuzi').value;
+        const beiU = document.getElementById('beiUzia').value;
+
+        const { error } = await supabase.from('stoki').insert([
+            { jina_la_bidhaa: jina, idadi_iliyopo: idadi, bei_ya_kununulia: beiN, bei_ya_kuuzia: beiU }
+        ]);
+
+        if (error) alert("Imefeli: " + error.message);
+        else {
+            alert("Bidhaa imeongezwa!");
+            document.getElementById('stokiForm').reset();
+            pakuaStoki();
+        }
+    });
+
+    // Pakua data mara ya kwanza duka likifunguka
+    pakuaStoki();
+</script>
+
+</body>
+</html>
