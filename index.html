@@ -730,6 +730,7 @@ tfoot td:last-child{padding-right:20px;text-align:right}
 <div id="root"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
 'use strict';
 const {useState,useEffect,useMemo,useCallback,useRef,createElement:h,Fragment}=React;
@@ -750,12 +751,15 @@ const LS={
 };
 
 // ══════════════════════════════════════════
+// SUPABASE (Auth halisi + Real-time sync)
+// ══════════════════════════════════════════
+const SUPABASE_URL="https://zomnoczdiulfnbemsyue.supabase.co";
+const SUPABASE_KEY="sb_publishable_gWptvsA7VttzkO8cBnuXBA_ordmrLxv";
+const sbClient=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+
+// ══════════════════════════════════════════
 // SEED DATA
 // ══════════════════════════════════════════
-const SEED_USERS=[
-  {id:"admin",jina:"Meneja",nywila:"admin123",role:"admin"},
-  {id:"karani",jina:"Karani",nywila:"karani123",role:"karani"}
-];
 const SEED_STOKI=[
   {id:"s1",bidhaa:"Chrisp",idadi:100,bei_nun:500,bei_uuz:700,min:20,kat:"Vitafunio"},
   {id:"s2",bidhaa:"Mimi",idadi:300,bei_nun:100,bei_uuz:150,min:50,kat:"Vitafunio"},
@@ -908,23 +912,35 @@ function ReceiptModal({sale,onClose}){
 // ══════════════════════════════════════════
 // LOGIN
 // ══════════════════════════════════════════
-function Login({onLogin}){
-  const [id,setId]=useState("");
+function Login(){
+  const [mode,setMode]=useState("in"); // "in" = ingia, "up" = jisajili
+  const [email,setEmail]=useState("");
   const [pwd,setPwd]=useState("");
+  const [jina,setJina]=useState("");
   const [showPwd,setShowPwd]=useState(false);
   const [err,setErr]=useState("");
+  const [info,setInfo]=useState("");
   const [loading,setLoading]=useState(false);
 
-  function attempt(){
-    if(!id.trim()||!pwd){setErr("Jaza sehemu zote ili uendelee");return}
-    setLoading(true);setErr("");
-    setTimeout(()=>{
-      const users=LS.get("duka_users")||SEED_USERS;
-      const u=users.find(x=>x.id===id.trim()&&x.nywila===pwd);
+  async function attempt(){
+    if(!email.trim()||!pwd){setErr("Jaza sehemu zote ili uendelee");return}
+    if(mode==="up"&&!jina.trim()){setErr("Weka jina lako kamili");return}
+    if(pwd.length<6){setErr("Nywila iwe na herufi/namba angalau 6");return}
+    setLoading(true);setErr("");setInfo("");
+    if(mode==="in"){
+      const{error}=await sbClient.auth.signInWithPassword({email:email.trim(),password:pwd});
       setLoading(false);
-      if(u)onLogin(u);
-      else setErr("Jina la mtumiaji au nywila si sahihi. Jaribu tena.");
-    },500);
+      if(error)setErr("Barua pepe au nywila si sahihi.");
+      // ukifanikiwa, App() inatambua mabadiliko kupitia onAuthStateChange
+    }else{
+      const{error}=await sbClient.auth.signUp({email:email.trim(),password:pwd,options:{data:{jina:jina.trim()}}});
+      setLoading(false);
+      if(error){setErr(error.message||"Imeshindikana kujisajili.")}
+      else{
+        setInfo("Akaunti imeundwa ✓ Kama umeombwa kuthibitisha barua pepe, fungua inbox yako kwanza. Kisha ingia hapa chini.");
+        setMode("in");setPwd("");
+      }
+    }
   }
 
   return h("div",{className:"login-bg"},
@@ -932,25 +948,28 @@ function Login({onLogin}){
       h("div",{className:"login-logo"},
         h("div",{className:"login-logo-wrap"},"🏪"),
         h("div",{className:"login-title"},"Mfumo wa Duka"),
-        h("div",{className:"login-sub"},"Ingia ili kuendelea kusimamia biashara yako")
+        h("div",{className:"login-sub"},mode==="in"?"Ingia ili kuendelea kusimamia biashara yako":"Tengeneza akaunti mpya")
       ),
       err&&h("div",{className:"login-error"},"⚠ ",err),
-      h(Field,{label:"Jina la Mtumiaji"},
-        h(Inp,{value:id,onChange:setId,placeholder:"Andika ID yako...",autoComplete:"username",onKeyDown:e=>e.key==="Enter"&&attempt()})
+      info&&h("div",{className:"login-error",style:{background:"rgba(34,197,94,.1)",borderColor:"rgba(34,197,94,.3)",color:"#16a34a"}},"✓ ",info),
+      mode==="up"&&h(Field,{label:"Jina Kamili"},
+        h(Inp,{value:jina,onChange:setJina,placeholder:"mfano: Salma Hassan",autoComplete:"name"})
+      ),
+      h(Field,{label:"Barua Pepe"},
+        h(Inp,{value:email,onChange:setEmail,type:"email",placeholder:"jina@barua.com",autoComplete:"username",onKeyDown:e=>e.key==="Enter"&&attempt()})
       ),
       h(Field,{label:"Nywila"},
         h("div",{style:{position:"relative"}},
-          h("input",{className:"field-input",type:showPwd?"text":"password",value:pwd,onChange:e=>setPwd(e.target.value),placeholder:"••••••••",style:{paddingRight:44},autoComplete:"current-password",onKeyDown:e=>e.key==="Enter"&&attempt()}),
+          h("input",{className:"field-input",type:showPwd?"text":"password",value:pwd,onChange:e=>setPwd(e.target.value),placeholder:"••••••••",style:{paddingRight:44},autoComplete:mode==="in"?"current-password":"new-password",onKeyDown:e=>e.key==="Enter"&&attempt()}),
           h("button",{onClick:()=>setShowPwd(v=>!v),style:{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",border:"none",background:"none",cursor:"pointer",fontSize:18,color:"var(--text3)",lineHeight:1}},showPwd?"🙈":"👁️")
         )
       ),
       h("button",{className:"login-btn",onClick:attempt,disabled:loading},
-        loading?h(Fragment,null,"⏳ Inaingia..."):"Ingia kwenye Mfumo →"
+        loading?h(Fragment,null,"⏳ Inatuma..."):(mode==="in"?"Ingia kwenye Mfumo →":"Jisajili →")
       ),
-      h("div",{className:"login-demo"},
-        h("div",{className:"login-demo-title"},"Akaunti za Majaribio"),
-        h("div",{className:"login-demo-row"},"👑 Meneja:",h("code",null,"admin"),"/",h("code",null,"admin123")),
-        h("div",{className:"login-demo-row"},"📋 Karani:",h("code",null,"karani"),"/",h("code",null,"karani123"))
+      h("div",{style:{textAlign:"center",marginTop:16,fontSize:13,color:"var(--text3)"}},
+        mode==="in"?"Huna akaunti bado? ":"Tayari una akaunti? ",
+        h("a",{href:"#",onClick:e=>{e.preventDefault();setMode(m=>m==="in"?"up":"in");setErr("");setInfo("")},style:{color:"var(--brand)",fontWeight:700,textDecoration:"underline"}},mode==="in"?"Jisajili":"Ingia")
       )
     )
   );
@@ -1612,86 +1631,45 @@ function Stoki({stoki,patchStoki,user}){
 // ══════════════════════════════════════════
 // WATUMIAJI
 // ══════════════════════════════════════════
-function Watumiaji({users,patchUsers,currentUser}){
-  const [modal,setModal]=useState(null);
-  const [form,setForm]=useState({});
+function Watumiaji({users,currentUser,setUserRole}){
   const [confirm,setConfirm]=useState(null);
-  const sf=(k,v)=>setForm(f=>({...f,[k]:v}));
 
-  function save(){
-    if(modal==="add"){
-      if(!form.id||!form.jina||!form.nywila)return toast("Jaza sehemu zote","error");
-      if(users.find(u=>u.id===form.id))return toast("ID hiyo tayari ipo","error");
-      patchUsers(p=>[...p,{id:form.id,jina:form.jina,nywila:form.nywila,role:form.role||"karani"}]);
-      toast(`Mtumiaji "${form.jina}" ameongezwa ✓`);
-    }else if(modal==="edit"){
-      patchUsers(p=>p.map(u=>u.id===form.id?{...u,jina:form.jina,role:form.role}:u));
-      toast("Imesasishwa ✓");
-    }else if(modal==="pwd"){
-      if(!form.mpya)return toast("Weka nywila mpya","error");
-      if(form.mpya!==form.thibiti)return toast("Nywila hazifanani","error");
-      const tgt=users.find(u=>u.id===form.id);
-      if(currentUser.role!=="admin"&&tgt.nywila!==form.zamani)return toast("Nywila ya zamani si sahihi","error");
-      patchUsers(p=>p.map(u=>u.id===form.id?{...u,nywila:form.mpya}:u));
-      toast("Nywila imebadilishwa ✓");
-    }
-    setModal(null);
-  }
-  function del(u){
-    setConfirm({msg:`Futa mtumiaji "${u.jina}"?`,onOk:()=>{
-      patchUsers(p=>p.filter(x=>x.id!==u.id));
-      toast("Mtumiaji amefutwa");setConfirm(null);
-    }});
+  function toggleRole(u){
+    const newRole=u.role==="admin"?"karani":"admin";
+    setConfirm({
+      msg:`Badilisha "${u.jina}" awe ${newRole==="admin"?"Meneja/Admin":"Karani"}?`,
+      onOk:()=>{setUserRole(u.id,newRole);setConfirm(null)}
+    });
   }
 
   return h("div",{className:"anim-up"},
     h("div",{className:"section-top"},
-      h("div",{className:"section-title-block"},h("h2",null,"👥 Usimamizi wa Watumiaji"),h("p",null,`Watumiaji ${users.length}`)),
-      h("button",{className:"btn btn-primary",onClick:()=>{setForm({id:"",jina:"",nywila:"",role:"karani"});setModal("add")}},"+ Ongeza Mtumiaji")
+      h("div",{className:"section-title-block"},h("h2",null,"👥 Usimamizi wa Watumiaji"),h("p",null,`Watumiaji ${users.length}`))
+    ),
+    h("div",{className:"profile-card",style:{marginBottom:16}},
+      h("div",{style:{fontSize:12.5,color:"var(--text3)",lineHeight:1.6}},
+        "Watumiaji wapya wanajisajili wenyewe kwenye ukurasa wa kuingia (kwa kubonyeza \"Jisajili\"). Wakishajisajili, wataonekana hapa chini kama ",h("b",null,"Karani"),". Wewe kama Meneja unaweza kuwapandisha kuwa Admin au kuwarudisha kuwa Karani."
+      )
     ),
     h("div",{className:"table-card"},
       h("table",null,
-        h("thead",null,h("tr",null,h("th",null,"ID / Jina"),h("th",null,"Nafasi"),h("th",null,"Vitendo"))),
+        h("thead",null,h("tr",null,h("th",null,"Jina"),h("th",null,"Nafasi"),h("th",null,"Vitendo"))),
         h("tbody",null,...users.map(u=>h("tr",{key:u.id},
           h("td",null,
             h("div",{style:{display:"flex",alignItems:"center",gap:10}},
-              h("div",{style:{width:34,height:34,borderRadius:9,background:u.role==="admin"?"var(--purple-100)":"var(--blue-100)",color:u.role==="admin"?"var(--purple-600)":"var(--blue-600)",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:14,flexShrink:0}},u.jina[0].toUpperCase()),
+              h("div",{style:{width:34,height:34,borderRadius:9,background:u.role==="admin"?"var(--purple-100)":"var(--blue-100)",color:u.role==="admin"?"var(--purple-600)":"var(--blue-600)",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:14,flexShrink:0}},(u.jina||"?")[0].toUpperCase()),
               h("div",null,
                 h("div",{style:{fontWeight:700,fontSize:14}},u.jina,u.id===currentUser.id&&h("span",{style:{marginLeft:6,fontSize:11,color:"var(--brand)",fontWeight:700}},"(Mimi)")),
-                h("div",{style:{fontSize:12,color:"var(--text3)",fontFamily:"monospace"}},u.id)
+                h("div",{style:{fontSize:11,color:"var(--text3)",fontFamily:"monospace"}},String(u.id).slice(0,8))
               )
             )
           ),
           h("td",null,h(Badge,{color:u.role==="admin"?"purple":"blue"},u.role==="admin"?"👑 Meneja":"📋 Karani")),
           h("td",null,h("div",{style:{display:"flex",gap:6,justifyContent:"flex-end"}},
-            h("button",{className:"btn btn-info btn-sm",onClick:()=>{setForm({...u});setModal("edit")}},"✏️ Hariri"),
-            h("button",{className:"btn btn-secondary btn-sm",onClick:()=>{setForm({id:u.id,zamani:"",mpya:"",thibiti:""});setModal("pwd")}},"🔑 Nywila"),
-            u.id!==currentUser.id&&h("button",{className:"btn btn-danger btn-sm",onClick:()=>del(u)},"🗑")
+            u.id!==currentUser.id&&h("button",{className:"btn btn-secondary btn-sm",onClick:()=>toggleRole(u)},u.role==="admin"?"⬇️ Fanya Karani":"⬆️ Fanya Admin")
           ))
         )))
       )
-    ),
-    modal==="add"&&h(Modal,{title:"Mtumiaji Mpya",onClose:()=>setModal(null),
-      footer:h(Fragment,null,h("button",{className:"btn btn-secondary",onClick:()=>setModal(null)},"Ghairi"),h("button",{className:"btn btn-primary",onClick:save},"Ongeza"))},
-      h(Row,null,
-        h(Field,{label:"ID ya Kuingia",hint:"Herufi ndogo, bila nafasi"},h(Inp,{value:form.id,onChange:v=>sf("id",v.toLowerCase().replace(/\s/g,"")),placeholder:"mfano: salma"})),
-        h(Field,{label:"Jina Kamili"},h(Inp,{value:form.jina,onChange:v=>sf("jina",v),placeholder:"Salma Hassan"}))
-      ),
-      h(Row,null,
-        h(Field,{label:"Nywila"},h("input",{className:"field-input",type:"password",value:form.nywila||"",onChange:e=>sf("nywila",e.target.value),placeholder:"••••••••"})),
-        h(Field,{label:"Nafasi"},h(Sel,{value:form.role,onChange:v=>sf("role",v)},h("option",{value:"karani"},"📋 Karani"),h("option",{value:"admin"},"👑 Meneja/Admin")))
-      )
-    ),
-    modal==="edit"&&h(Modal,{title:"Hariri Mtumiaji",onClose:()=>setModal(null),
-      footer:h(Fragment,null,h("button",{className:"btn btn-secondary",onClick:()=>setModal(null)},"Ghairi"),h("button",{className:"btn btn-primary",onClick:save},"Sasisha"))},
-      h(Field,{label:"Jina Kamili"},h(Inp,{value:form.jina,onChange:v=>sf("jina",v)})),
-      h(Field,{label:"Nafasi"},h(Sel,{value:form.role,onChange:v=>sf("role",v)},h("option",{value:"karani"},"📋 Karani"),h("option",{value:"admin"},"👑 Meneja/Admin")))
-    ),
-    modal==="pwd"&&h(Modal,{title:"Badilisha Nywila",onClose:()=>setModal(null),
-      footer:h(Fragment,null,h("button",{className:"btn btn-secondary",onClick:()=>setModal(null)},"Ghairi"),h("button",{className:"btn btn-primary",onClick:save},"Badilisha"))},
-      currentUser.role!=="admin"&&h(Field,{label:"Nywila ya Zamani"},h("input",{className:"field-input",type:"password",value:form.zamani||"",onChange:e=>sf("zamani",e.target.value)})),
-      h(Field,{label:"Nywila Mpya"},h("input",{className:"field-input",type:"password",value:form.mpya||"",onChange:e=>sf("mpya",e.target.value)})),
-      h(Field,{label:"Thibitisha Nywila Mpya"},h("input",{className:"field-input",type:"password",value:form.thibiti||"",onChange:e=>sf("thibiti",e.target.value)}))
     ),
     confirm&&h(Confirm,{...confirm,onCancel:()=>setConfirm(null)})
   );
@@ -1700,19 +1678,52 @@ function Watumiaji({users,patchUsers,currentUser}){
 // ══════════════════════════════════════════
 // PROFILE
 // ══════════════════════════════════════════
-function Profile({user,users,patchUsers}){
+function Profile({user,data,stoki,patchData,patchStoki}){
   const [modal,setModal]=useState(false);
-  const [form,setForm]=useState({zamani:"",mpya:"",thibiti:""});
+  const [form,setForm]=useState({mpya:"",thibiti:""});
   const sf=(k,v)=>setForm(f=>({...f,[k]:v}));
   const isAdmin=user.role==="admin";
+  const fileRef=useRef(null);
 
-  function changePwd(){
+  async function changePwd(){
     if(!form.mpya)return toast("Weka nywila mpya","error");
+    if(form.mpya.length<6)return toast("Nywila iwe na herufi/namba angalau 6","error");
     if(form.mpya!==form.thibiti)return toast("Nywila hazifanani","error");
-    const me=users.find(u=>u.id===user.id);
-    if(me.nywila!==form.zamani)return toast("Nywila ya zamani si sahihi","error");
-    patchUsers(p=>p.map(u=>u.id===user.id?{...u,nywila:form.mpya}:u));
-    toast("Nywila imebadilishwa ✓");setModal(false);
+    const{error}=await sbClient.auth.updateUser({password:form.mpya});
+    if(error)return toast("Imeshindwa kubadilisha nywila: "+error.message,"error");
+    toast("Nywila imebadilishwa ✓");setModal(false);setForm({mpya:"",thibiti:""});
+  }
+
+  function downloadBackup(){
+    const backup={
+      _mfumo:"Mfumo wa Duka",_toleo:2,_tarehe:new Date().toISOString(),
+      data,stoki
+    };
+    const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json"});
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(blob);
+    a.download=`duka-nakala-${today()}.json`;
+    a.click();
+    toast("Nakala ya data imepakuliwa ✓");
+  }
+
+  function applyRestore(text){
+    let parsed;
+    try{parsed=JSON.parse(text)}
+    catch(e){return toast("Faili si sahihi (siyo JSON halali)","error")}
+    if(!parsed||!parsed.data||!parsed.stoki)return toast("Faili hii si nakala sahihi ya Mfumo wa Duka","error");
+    patchData(()=>parsed.data);
+    patchStoki(()=>parsed.stoki);
+    toast("Data imerejeshwa kikamilifu ✓ (Imetumwa kwa watumiaji wote)");
+  }
+
+  function onFilePicked(e){
+    const file=e.target.files[0];
+    if(!file)return;
+    const reader=new FileReader();
+    reader.onload=ev=>applyRestore(ev.target.result);
+    reader.readAsText(file);
+    e.target.value="";
   }
 
   return h("div",{className:"anim-up"},
@@ -1729,9 +1740,19 @@ function Profile({user,users,patchUsers}){
       h("div",{className:"divider"}),
       h("button",{className:"btn btn-secondary",onClick:()=>setModal(true)},"🔑 Badilisha Nywila Yangu")
     ),
+    h("div",{className:"profile-card",style:{marginTop:16}},
+      h("div",{style:{fontWeight:800,fontSize:15,marginBottom:4}},"💾 Hifadhi na Rejesha Data"),
+      h("div",{style:{fontSize:12.5,color:"var(--text3)",marginBottom:14,lineHeight:1.5}},
+        "Data yako ipo kwenye kifaa hiki tu. Ikiwa utafuta cache/history ya kivinjari, data itapotea. Pakua nakala mara kwa mara ili uweze kuirejesha wakati wowote — hata kwenye kifaa kingine."
+      ),
+      h("div",{style:{display:"flex",gap:10,flexWrap:"wrap"}},
+        h("button",{className:"btn btn-primary",onClick:downloadBackup},"⬇️ Pakua Nakala ya Data"),
+        h("button",{className:"btn btn-secondary",onClick:()=>fileRef.current.click()},"⬆️ Rejesha kutoka Faili"),
+        h("input",{ref:fileRef,type:"file",accept:"application/json",style:{display:"none"},onChange:onFilePicked})
+      )
+    ),
     modal&&h(Modal,{title:"Badilisha Nywila",onClose:()=>setModal(false),
       footer:h(Fragment,null,h("button",{className:"btn btn-secondary",onClick:()=>setModal(false)},"Ghairi"),h("button",{className:"btn btn-primary",onClick:changePwd},"Badilisha"))},
-      h(Field,{label:"Nywila ya Zamani"},h("input",{className:"field-input",type:"password",value:form.zamani,onChange:e=>sf("zamani",e.target.value),placeholder:"••••••••"})),
       h(Field,{label:"Nywila Mpya"},h("input",{className:"field-input",type:"password",value:form.mpya,onChange:e=>sf("mpya",e.target.value),placeholder:"••••••••"})),
       h(Field,{label:"Thibitisha"},h("input",{className:"field-input",type:"password",value:form.thibiti,onChange:e=>sf("thibiti",e.target.value),placeholder:"••••••••"}))
     )
@@ -1772,7 +1793,8 @@ const PAGE_TITLES={home:"Muhtasari",mauzo:"Mauzo",manunuzi:"Manunuzi",stoki:"Sto
 // ROOT APP
 // ══════════════════════════════════════════
 function App(){
-  const [user,setUser]=useState(null);
+  const [session,setSession]=useState(undefined); // undefined=inapakia, null=hajaingia
+  const [user,setUser]=useState(null); // {id,jina,role,email}
   const [page,setPage]=useState("home");
   const [dark,setDark]=useState(false);
   const [online,setOnline]=useState(navigator.onLine);
@@ -1780,35 +1802,105 @@ function App(){
 
   const [data,setDataRaw]=useState(null);
   const [stoki,setStokiRaw]=useState(null);
-  const [users,setUsersRaw]=useState(SEED_USERS);
+  const [users,setUsersRaw]=useState([]);
 
-  function patchData(fn){setDataRaw(p=>{const n=fn(p);LS.set("duka_data",n);return n})}
-  function patchStoki(fn){setStokiRaw(p=>{const n=typeof fn==="function"?fn(p):fn;LS.set("duka_stoki",n);return n})}
-  function patchUsers(fn){setUsersRaw(p=>{const n=typeof fn==="function"?fn(p):fn;LS.set("duka_users",n);return n})}
+  function patchData(fn){
+    setDataRaw(p=>{
+      const n=fn(p);
+      LS.set("duka_data",n);
+      sbClient.from("duka_store").upsert({key:"duka_data",value:n,updated_at:new Date().toISOString()})
+        .then(({error})=>{if(error)toast("Haikusawazishwa mtandaoni (imehifadhiwa kwenye kifaa)","warning")});
+      return n;
+    });
+  }
+  function patchStoki(fn){
+    setStokiRaw(p=>{
+      const n=typeof fn==="function"?fn(p):fn;
+      LS.set("duka_stoki",n);
+      sbClient.from("duka_store").upsert({key:"duka_stoki",value:n,updated_at:new Date().toISOString()})
+        .then(({error})=>{if(error)toast("Haikusawazishwa mtandaoni (imehifadhiwa kwenye kifaa)","warning")});
+      return n;
+    });
+  }
+  async function setUserRole(id,role){
+    const{error}=await sbClient.from("profiles").update({role}).eq("id",id);
+    if(error)toast("Imeshindwa kubadilisha nafasi","error");else toast("Nafasi imesasishwa ✓");
+  }
 
+  // Auth: pata session iliyopo, na sikiliza mabadiliko (login/logout)
   useEffect(()=>{
-    const d=LS.get("duka_data");setDataRaw(d||SEED_DATA);
-    const s=LS.get("duka_stoki");setStokiRaw(s||SEED_STOKI);
-    const u=LS.get("duka_users");if(u)setUsersRaw(u);
-    const sess=LS.get("duka_sess");
-    if(sess){const all=LS.get("duka_users")||SEED_USERS;const found=all.find(x=>x.id===sess);if(found)setUser(found)}
-    const dk=LS.get("duka_dark");if(dk)setDark(true);
+    sbClient.auth.getSession().then(({data:{session}})=>setSession(session));
+    const{data:sub}=sbClient.auth.onAuthStateChange((_e,s)=>setSession(s));
+    return()=>sub.subscription.unsubscribe();
   },[]);
 
+  // Pakua wasifu (jina/role) mtumiaji akishaingia
+  useEffect(()=>{
+    if(!session){setUser(null);return}
+    let active=true;
+    (async()=>{
+      const{data:prof}=await sbClient.from("profiles").select("id,jina,role").eq("id",session.user.id).single();
+      if(!active)return;
+      if(prof)setUser({id:prof.id,jina:prof.jina,role:prof.role,email:session.user.email});
+      else setUser({id:session.user.id,jina:session.user.email,role:"karani",email:session.user.email});
+    })();
+    return()=>{active=false};
+  },[session]);
+
+  // Pakua data + jisajili kwa "real-time" mabadiliko baada ya kuingia
+  useEffect(()=>{
+    if(!user)return;
+    let active=true;
+    (async()=>{
+      const{data:rows}=await sbClient.from("duka_store").select("key,value").in("key",["duka_data","duka_stoki"]);
+      const remoteData=rows&&rows.find(r=>r.key==="duka_data");
+      const remoteStoki=rows&&rows.find(r=>r.key==="duka_stoki");
+      if(!active)return;
+      const dVal=remoteData?remoteData.value:(LS.get("duka_data")||SEED_DATA);
+      const sVal=remoteStoki?remoteStoki.value:(LS.get("duka_stoki")||SEED_STOKI);
+      setDataRaw(dVal);setStokiRaw(sVal);
+      LS.set("duka_data",dVal);LS.set("duka_stoki",sVal);
+      if(!remoteData)sbClient.from("duka_store").upsert({key:"duka_data",value:dVal,updated_at:new Date().toISOString()});
+      if(!remoteStoki)sbClient.from("duka_store").upsert({key:"duka_stoki",value:sVal,updated_at:new Date().toISOString()});
+    })();
+
+    sbClient.from("profiles").select("id,jina,role").then(({data:profs})=>{if(active&&profs)setUsersRaw(profs)});
+
+    const channel=sbClient.channel("duka_realtime")
+      .on("postgres_changes",{event:"*",schema:"public",table:"duka_store"},payload=>{
+        const row=payload.new;if(!row)return;
+        if(row.key==="duka_data"){setDataRaw(row.value);LS.set("duka_data",row.value)}
+        if(row.key==="duka_stoki"){setStokiRaw(row.value);LS.set("duka_stoki",row.value)}
+      })
+      .on("postgres_changes",{event:"*",schema:"public",table:"profiles"},()=>{
+        sbClient.from("profiles").select("id,jina,role").then(({data:profs})=>{if(profs)setUsersRaw(profs)});
+      })
+      .subscribe();
+
+    return()=>{active=false;sbClient.removeChannel(channel)};
+  },[user&&user.id]);
+
+  useEffect(()=>{
+    const dk=LS.get("duka_dark");if(dk)setDark(true);
+  },[]);
   useEffect(()=>{document.documentElement.setAttribute("data-theme",dark?"dark":"light");LS.set("duka_dark",dark)},[dark]);
-  useEffect(()=>{if(user)LS.set("duka_sess",user.id)},[user]);
   useEffect(()=>{
     const on=()=>setOnline(true);const off=()=>setOnline(false);
     window.addEventListener("online",on);window.addEventListener("offline",off);
     return()=>{window.removeEventListener("online",on);window.removeEventListener("offline",off)};
   },[]);
 
-  if(!data||!stoki)return h("div",{style:{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16,background:"var(--bg)"}},
+  if(session===undefined)return h("div",{style:{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16,background:"var(--bg)"}},
     h("div",{style:{fontSize:52}},"🏪"),
     h("div",{style:{color:"var(--brand)",fontWeight:700,fontSize:16,letterSpacing:".02em"}},"Inapakia Mfumo...")
   );
 
-  if(!user)return h(Fragment,null,h(ToastProvider),h(Login,{onLogin:u=>{setUser(u);setPage("home")}}));
+  if(!user)return h(Fragment,null,h(ToastProvider),h(Login));
+
+  if(!data||!stoki)return h(Fragment,null,h(ToastProvider),h("div",{style:{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16,background:"var(--bg)"}},
+    h("div",{style:{fontSize:52}},"🏪"),
+    h("div",{style:{color:"var(--brand)",fontWeight:700,fontSize:16,letterSpacing:".02em"}},"Inapakia Data...")
+  ));
 
   const isAdmin=user.role==="admin";
   const visibleNav=NAV.filter(n=>!n.admin||isAdmin);
@@ -1817,7 +1909,7 @@ function App(){
   // Alerts count
   const alerts=(stoki||[]).filter(s=>s.idadi<=s.min).length;
 
-  function logout(){LS.set("duka_sess",null);setUser(null);setPage("home")}
+  function logout(){sbClient.auth.signOut();setPage("home")}
   function goPage(id){setPage(id);setSbOpen(false)}
 
   function renderPage(){
@@ -1829,15 +1921,15 @@ function App(){
       case"stoki":return h(Stoki,{stoki,patchStoki,user});
       case"kudai":return h(DeniPage,{type:"madeniKudai",...props});
       case"kulipa":return h(DeniPage,{type:"madeniKulipa",...props});
-      case"watumiaji":return isAdmin?h(Watumiaji,{users,patchUsers,currentUser:user}):null;
-      case"profile":return h(Profile,{user,users,patchUsers});
+      case"watumiaji":return isAdmin?h(Watumiaji,{users,currentUser:user,setUserRole}):null;
+      case"profile":return h(Profile,{user,data,stoki,patchData,patchStoki});
       default:return null;
     }
   }
 
   return h(Fragment,null,
     h(ToastProvider),
-    !online&&h("div",{className:"offline-banner"},"📵 Hakuna mtandao — Data inahifadhiwa kwenye kifaa. Utaendelea ukiungana tena."),
+    !online&&h("div",{className:"offline-banner"},"📵 Hakuna mtandao — Data inahifadhiwa kwenye kifaa. Itasawazishwa ukiungana tena."),
 
     h("div",{className:"shell"},
       // Sidebar overlay
