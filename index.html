@@ -1131,6 +1131,7 @@ function Mauzo({data,patchData,stoki,patchStoki,user}){
   const [form,setForm]=useState({});
   const [receipt,setReceipt]=useState(null);
   const [confirm,setConfirm]=useState(null);
+  const [bulkOpen,setBulkOpen]=useState(false);
   const isAdmin=user.role==="admin";
 
   const rows=useMemo(()=>{
@@ -1182,6 +1183,7 @@ function Mauzo({data,patchData,stoki,patchStoki,user}){
       ),
       h("div",{className:"section-actions"},
         h(Search,{value:q,onChange:setQ}),
+        h("button",{className:"btn btn-secondary",onClick:()=>setBulkOpen(true)},"🧾 Uza kwa Wingi"),
         h("button",{className:"btn btn-primary",onClick:openAdd},"+ Ongeza Uuzaji")
       )
     ),
@@ -1267,7 +1269,83 @@ function Mauzo({data,patchData,stoki,patchStoki,user}){
       )
     ),
     receipt&&h(ReceiptModal,{sale:receipt,onClose:()=>setReceipt(null)}),
+    bulkOpen&&h(BulkMauzoModal,{stoki,patchData,patchStoki,user,onClose:()=>setBulkOpen(false)}),
     confirm&&h(Confirm,{...confirm,onCancel:()=>setConfirm(null)})
+  );
+}
+
+// ══════════════════════════════════════════
+// UZA KWA WINGI (bulk sell modal)
+// ══════════════════════════════════════════
+function BulkMauzoModal({stoki,patchData,patchStoki,user,onClose}){
+  const blank=()=>({_k:uid(),bidhaa:"",idadi:""});
+  const [tarehe,setTarehe]=useState(today());
+  const [rows,setRows]=useState([blank(),blank(),blank()]);
+  const upd=(i,k,v)=>setRows(r=>r.map((row,idx)=>idx===i?{...row,[k]:v}:row));
+  const addRow=()=>setRows(r=>[...r,blank()]);
+  const rmRow=i=>setRows(r=>r.filter((_,idx)=>idx!==i));
+
+  function usedElsewhere(bidhaa,excludeIdx){
+    return rows.reduce((a,r,idx)=>(idx===excludeIdx||r.bidhaa!==bidhaa)?a:a+(+r.idadi||0),0);
+  }
+
+  const enriched=rows.map((r,i)=>{
+    const item=stoki.find(s=>s.bidhaa===r.bidhaa);
+    const idadi=+r.idadi||0;
+    const jumla=idadi*(item?item.bei_uuz:0);
+    const faida=jumla-idadi*(item?item.bei_nun:0);
+    const stokiIliyobaki=item?item.idadi-usedElsewhere(r.bidhaa,i):0;
+    const zaidiYaStoki=!!(item&&idadi>stokiIliyobaki);
+    return{...r,item,idadi,jumla,faida,stokiIliyobaki,zaidiYaStoki};
+  });
+  const valid=enriched.filter(r=>r.bidhaa&&r.idadi>0&&r.item&&!r.zaidiYaStoki);
+  const invalid=enriched.filter(r=>r.bidhaa&&r.idadi>0&&(!r.item||r.zaidiYaStoki));
+  const totals={jumla:valid.reduce((a,r)=>a+r.jumla,0),faida:valid.reduce((a,r)=>a+r.faida,0)};
+
+  function save(){
+    if(!valid.length)return toast("Jaza angalau uuzaji mmoja sahihi","error");
+    if(invalid.length)return toast("Kuna mistari yenye stoki isiyotosha — sahihisha kwanza","error");
+    const recs=valid.map(r=>({id:uid(),tarehe,bidhaa:r.bidhaa,idadi:r.idadi,bei_uuz:r.item.bei_uuz,bei_nun:r.item.bei_nun,jumla:r.jumla,faida:r.faida,iliyoandikwa_na:user.jina}));
+    patchData(p=>({...p,mauzo:[...(p.mauzo||[]),...recs]}));
+    patchStoki(prev=>{
+      let list=[...prev];
+      for(const r of valid){
+        const idx=list.findIndex(s=>s.bidhaa===r.bidhaa);
+        if(idx>=0)list[idx]={...list[idx],idadi:list[idx].idadi-r.idadi};
+      }
+      return list;
+    });
+    toast(`Mauzo ${valid.length} yameandikwa ✓`);
+    onClose();
+  }
+
+  return h(Modal,{title:"Uza Bidhaa kwa Wingi",onClose,wide:true,
+    footer:h(Fragment,null,
+      h("button",{className:"btn btn-secondary",onClick:onClose},"Ghairi"),
+      h("button",{className:"btn btn-primary",onClick:save},`Hifadhi Mauzo (${valid.length})`)
+    )},
+    h(Field,{label:"Tarehe ya Mauzo (kwa mistari yote)"},h(Inp,{type:"date",value:tarehe,onChange:setTarehe})),
+    h("div",{style:{fontSize:12,color:"var(--text3)",margin:"10px 0"}},"Chagua bidhaa na idadi kwa kila mstari. Bei na faida zitakokotolewa moja kwa moja kutoka Stoki."),
+    ...enriched.map((r,i)=>h("div",{key:r._k,className:"table-card",style:{padding:14,marginBottom:10,borderColor:r.zaidiYaStoki?"var(--red-500)":undefined}},
+      h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}},
+        h("span",{style:{fontSize:12,fontWeight:700,color:"var(--text3)"}},`Uuzaji #${i+1}`),
+        rows.length>1&&h("button",{className:"btn btn-ghost btn-sm btn-icon",onClick:()=>rmRow(i)},"✕")
+      ),
+      h(Field,{label:"Bidhaa"},
+        h(Sel,{value:r.bidhaa,onChange:v=>upd(i,"bidhaa",v)},
+          h("option",{value:""},"— Chagua bidhaa —"),
+          ...stoki.map(s=>h("option",{key:s.id,value:s.bidhaa,disabled:s.idadi===0},`${s.bidhaa} (Stoki: ${s.idadi})`))
+        )
+      ),
+      h(Field,{label:"Idadi"},h(Inp,{type:"number",min:1,value:r.idadi,onChange:v=>upd(i,"idadi",v),placeholder:"0"})),
+      r.zaidiYaStoki&&h("div",{className:"field-error"},"⚠ Stoki haitoshi — iliyobaki: ",r.stokiIliyobaki),
+      (r.bidhaa&&r.idadi>0&&!r.zaidiYaStoki)&&h("div",{style:{fontSize:12,color:"var(--text3)"}},"Jumla: ",h("b",{style:{color:"var(--text)"}},fmt(r.jumla))," · Faida: ",h("b",{style:{color:"var(--brand)"}},fmt(r.faida)))
+    )),
+    h("button",{className:"btn btn-secondary",onClick:addRow,style:{width:"100%",justifyContent:"center"}},"+ Ongeza Mstari Mwingine"),
+    valid.length>0&&h("div",{className:"calc-box",style:{marginTop:14}},
+      h("div",{className:"calc-item"},"Jumla Mauzo: ",h("strong",null,fmt(totals.jumla))),
+      h("div",{className:clsx("calc-item",totals.faida>=0?"profit":"loss")},"Jumla Faida: ",h("strong",null,fmt(totals.faida)))
+    )
   );
 }
 
@@ -1587,6 +1665,7 @@ function DeniPage({type,data,patchData,user}){
   const [modal,setModal]=useState(null);
   const [form,setForm]=useState({});
   const [confirm,setConfirm]=useState(null);
+  const [bulkOpen,setBulkOpen]=useState(false);
   const isAdmin=user.role==="admin";
 
   const rows=useMemo(()=>{
@@ -1649,6 +1728,7 @@ function DeniPage({type,data,patchData,user}){
       ),
       h("div",{className:"section-actions"},
         h(Search,{value:q,onChange:setQ}),
+        h("button",{className:"btn btn-secondary",onClick:()=>setBulkOpen(true)},"+ Ongeza kwa Wingi"),
         h("button",{className:"btn btn-primary",onClick:openAdd},"+ Ongeza Deni")
       )
     ),
@@ -1744,7 +1824,103 @@ function DeniPage({type,data,patchData,user}){
       h(Field,{label:"Kiasi (TZS)"},h(Inp,{type:"number",value:form.kiasi,onChange:v=>sf("kiasi",v),placeholder:"0"})),
       h(Field,{label:"Maelezo (Hiari)"},h(Inp,{value:form.maelezo,onChange:v=>sf("maelezo",v),placeholder:"Maelezo ya ziada..."}))
     ),
+    bulkOpen&&h(BulkDeniModal,{type,user,patchData,onClose:()=>setBulkOpen(false)}),
     confirm&&h(Confirm,{...confirm,onCancel:()=>setConfirm(null)})
+  );
+}
+
+// ══════════════════════════════════════════
+// ONGEZA MADENI KWA WINGI (bulk debt modal)
+// ══════════════════════════════════════════
+function BulkDeniModal({type,user,patchData,onClose}){
+  const isDai=type==="madeniKudai";
+  const UNPAID=isDai?"Hajalipwa":"Bado";
+  const personLabel=isDai?"Mteja":"Muuzaji";
+  const blank=()=>({_k:uid(),jina:"",kiasi:"",maelezo:""});
+  const [tarehe,setTarehe]=useState(today());
+  const [rows,setRows]=useState([blank(),blank(),blank()]);
+  const upd=(i,k,v)=>setRows(r=>r.map((row,idx)=>idx===i?{...row,[k]:v}:row));
+  const addRow=()=>setRows(r=>[...r,blank()]);
+  const rmRow=i=>setRows(r=>r.filter((_,idx)=>idx!==i));
+
+  const valid=rows.filter(r=>r.jina.trim()&&r.kiasi);
+  const total=valid.reduce((a,r)=>a+(+r.kiasi||0),0);
+
+  function save(){
+    if(!valid.length)return toast(`Jaza angalau deni moja lenye jina la ${personLabel.toLowerCase()} na kiasi`,"error");
+    const recs=valid.map(r=>({id:uid(),tarehe,jina:r.jina.trim(),kiasi:+r.kiasi,maelezo:r.maelezo.trim(),status:UNPAID,iliyoandikwa_na:user.jina}));
+    patchData(p=>({...p,[type]:[...(p[type]||[]),...recs]}));
+    toast(`Madeni ${valid.length} yameongezwa ✓`);
+    onClose();
+  }
+
+  return h(Modal,{title:`Ongeza Madeni kwa Wingi (${personLabel})`,onClose,wide:true,
+    footer:h(Fragment,null,
+      h("button",{className:"btn btn-secondary",onClick:onClose},"Ghairi"),
+      h("button",{className:"btn btn-primary",onClick:save},`Hifadhi Madeni (${valid.length})`)
+    )},
+    h(Field,{label:"Tarehe (kwa mistari yote)"},h(Inp,{type:"date",value:tarehe,onChange:setTarehe})),
+    ...rows.map((r,i)=>h("div",{key:r._k,className:"table-card",style:{padding:14,marginBottom:10}},
+      h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}},
+        h("span",{style:{fontSize:12,fontWeight:700,color:"var(--text3)"}},`Deni #${i+1}`),
+        rows.length>1&&h("button",{className:"btn btn-ghost btn-sm btn-icon",onClick:()=>rmRow(i)},"✕")
+      ),
+      h(Field,{label:`Jina la ${personLabel}`},h(Inp,{value:r.jina,onChange:v=>upd(i,"jina",v),placeholder:"Jina kamili..."})),
+      h(Row,null,
+        h(Field,{label:"Kiasi (TZS)"},h(Inp,{type:"number",value:r.kiasi,onChange:v=>upd(i,"kiasi",v),placeholder:"0"})),
+        h(Field,{label:"Maelezo (Hiari)"},h(Inp,{value:r.maelezo,onChange:v=>upd(i,"maelezo",v),placeholder:"..."}))
+      )
+    )),
+    h("button",{className:"btn btn-secondary",onClick:addRow,style:{width:"100%",justifyContent:"center"}},"+ Ongeza Mstari Mwingine"),
+    valid.length>0&&h("div",{className:"calc-box",style:{marginTop:14}},
+      h("div",{className:"calc-item"},"Madeni halali: ",h("strong",null,valid.length)),
+      h("div",{className:"calc-item"},"Jumla: ",h("strong",null,fmt(total)))
+    )
+  );
+}
+
+// ── Ongeza Matumizi kwa Wingi ──
+function BulkMatumiziModal({patchData,user,onClose}){
+  const blank=()=>({_k:uid(),kategoria:MATUMIZI_KAT[0],kiasi:"",maelezo:""});
+  const [tarehe,setTarehe]=useState(today());
+  const [rows,setRows]=useState([blank(),blank(),blank()]);
+  const upd=(i,k,v)=>setRows(r=>r.map((row,idx)=>idx===i?{...row,[k]:v}:row));
+  const addRow=()=>setRows(r=>[...r,blank()]);
+  const rmRow=i=>setRows(r=>r.filter((_,idx)=>idx!==i));
+
+  const valid=rows.filter(r=>r.kategoria&&r.kiasi);
+  const total=valid.reduce((a,r)=>a+(+r.kiasi||0),0);
+
+  function save(){
+    if(!valid.length)return toast("Jaza angalau matumizi moja lenye kategoria na kiasi","error");
+    const recs=valid.map(r=>({id:uid(),tarehe,kategoria:r.kategoria,kiasi:+r.kiasi,maelezo:r.maelezo.trim(),iliyoandikwa_na:user.jina}));
+    patchData(p=>({...p,matumizi:[...(p.matumizi||[]),...recs]}));
+    toast(`Matumizi ${valid.length} yameongezwa ✓`);
+    onClose();
+  }
+
+  return h(Modal,{title:"Ongeza Matumizi kwa Wingi",onClose,wide:true,
+    footer:h(Fragment,null,
+      h("button",{className:"btn btn-secondary",onClick:onClose},"Ghairi"),
+      h("button",{className:"btn btn-primary",onClick:save},`Hifadhi Matumizi (${valid.length})`)
+    )},
+    h(Field,{label:"Tarehe (kwa mistari yote)"},h(Inp,{type:"date",value:tarehe,onChange:setTarehe})),
+    ...rows.map((r,i)=>h("div",{key:r._k,className:"table-card",style:{padding:14,marginBottom:10}},
+      h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}},
+        h("span",{style:{fontSize:12,fontWeight:700,color:"var(--text3)"}},`Matumizi #${i+1}`),
+        rows.length>1&&h("button",{className:"btn btn-ghost btn-sm btn-icon",onClick:()=>rmRow(i)},"✕")
+      ),
+      h(Row,null,
+        h(Field,{label:"Kategoria"},h(Sel,{value:r.kategoria,onChange:v=>upd(i,"kategoria",v)},...MATUMIZI_KAT.map(k=>h("option",{key:k,value:k},k)))),
+        h(Field,{label:"Kiasi (TZS)"},h(Inp,{type:"number",value:r.kiasi,onChange:v=>upd(i,"kiasi",v),placeholder:"0"}))
+      ),
+      h(Field,{label:"Maelezo (Hiari)"},h(Inp,{value:r.maelezo,onChange:v=>upd(i,"maelezo",v),placeholder:"..."}))
+    )),
+    h("button",{className:"btn btn-secondary",onClick:addRow,style:{width:"100%",justifyContent:"center"}},"+ Ongeza Mstari Mwingine"),
+    valid.length>0&&h("div",{className:"calc-box",style:{marginTop:14}},
+      h("div",{className:"calc-item"},"Matumizi halali: ",h("strong",null,valid.length)),
+      h("div",{className:"calc-item loss"},"Jumla: ",h("strong",null,fmt(total)))
+    )
   );
 }
 
@@ -1756,6 +1932,7 @@ function Matumizi({data,patchData,user}){
   const [modal,setModal]=useState(null);
   const [form,setForm]=useState({});
   const [confirm,setConfirm]=useState(null);
+  const [bulkOpen,setBulkOpen]=useState(false);
   const isAdmin=user.role==="admin";
   const sf=(k,v)=>setForm(f=>({...f,[k]:v}));
 
@@ -1801,6 +1978,7 @@ function Matumizi({data,patchData,user}){
       h("div",{className:"section-title-block"},h("h2",null,"💸 Matumizi ya Kila Siku"),h("p",null,`Rekodi ${rows.length}`)),
       h("div",{className:"section-actions"},
         h(Search,{value:q,onChange:setQ}),
+        h("button",{className:"btn btn-secondary",onClick:()=>setBulkOpen(true)},"➕ Ongeza kwa Wingi"),
         h("button",{className:"btn btn-primary",onClick:openAdd},"+ Ongeza Matumizi")
       )
     ),
@@ -1850,7 +2028,8 @@ function Matumizi({data,patchData,user}){
       h(Field,{label:"Kiasi (TZS)"},h(Inp,{type:"number",value:form.kiasi,onChange:v=>sf("kiasi",v),placeholder:"0"})),
       h(Field,{label:"Maelezo (Hiari)"},h(Inp,{value:form.maelezo,onChange:v=>sf("maelezo",v),placeholder:"Maelezo ya ziada..."}))
     ),
-    confirm&&h(Confirm,{...confirm,onCancel:()=>setConfirm(null)})
+    confirm&&h(Confirm,{...confirm,onCancel:()=>setConfirm(null)}),
+    bulkOpen&&h(BulkMatumiziModal,{patchData,user,onClose:()=>setBulkOpen(false)})
   );
 }
 
@@ -1862,6 +2041,7 @@ function Stoki({stoki,patchStoki,user}){
   const [modal,setModal]=useState(null);
   const [form,setForm]=useState({});
   const [confirm,setConfirm]=useState(null);
+  const [bulkOpen,setBulkOpen]=useState(false);
   const isAdmin=user.role==="admin";
 
   const rows=useMemo(()=>{
@@ -1912,6 +2092,7 @@ function Stoki({stoki,patchStoki,user}){
       h("div",{className:"section-actions"},
         h(Search,{value:q,onChange:setQ}),
         h("button",{className:"btn btn-secondary",onClick:exportCSV},"📥 Pakua CSV"),
+        isAdmin&&h("button",{className:"btn btn-secondary",onClick:()=>setBulkOpen(true)},"📥 Ongeza kwa Wingi"),
         isAdmin&&h("button",{className:"btn btn-primary",onClick:openAdd},"+ Bidhaa Mpya")
       )
     ),
@@ -1995,7 +2176,73 @@ function Stoki({stoki,patchStoki,user}){
         h(Field,{label:"Bei Uuzaji (TZS)"},h(Inp,{type:"number",value:form.bei_uuz,onChange:v=>sf("bei_uuz",v),placeholder:"0"}))
       )
     ),
+    bulkOpen&&h(BulkStokiModal,{stoki,patchStoki,onClose:()=>setBulkOpen(false)}),
     confirm&&h(Confirm,{...confirm,onCancel:()=>setConfirm(null)})
+  );
+}
+
+// ══════════════════════════════════════════
+// ONGEZA BIDHAA KWA WINGI (bulk stock modal)
+// ══════════════════════════════════════════
+function BulkStokiModal({stoki,patchStoki,onClose}){
+  const blank=()=>({_k:uid(),bidhaa:"",kat:"",idadi:"",bei_nun:"",bei_uuz:"",min:"10"});
+  const [rows,setRows]=useState([blank(),blank(),blank()]);
+  const upd=(i,k,v)=>setRows(r=>r.map((row,idx)=>idx===i?{...row,[k]:v}:row));
+  const addRow=()=>setRows(r=>[...r,blank()]);
+  const rmRow=i=>setRows(r=>r.filter((_,idx)=>idx!==i));
+
+  const valid=rows.filter(r=>r.bidhaa.trim()&&r.idadi);
+  const totalMtaji=valid.reduce((a,r)=>a+(+r.idadi||0)*(+r.bei_nun||0),0);
+
+  function save(){
+    if(!valid.length)return toast("Jaza angalau bidhaa moja yenye jina na idadi","error");
+    patchStoki(prev=>{
+      let list=[...prev];
+      for(const r of valid){
+        const idx=list.findIndex(s=>s.bidhaa.toLowerCase()===r.bidhaa.trim().toLowerCase());
+        const bNun=+r.bei_nun||0,bUuz=+r.bei_uuz||0,idadiOngeza=+r.idadi||0,min=+r.min||10;
+        if(idx>=0){
+          list[idx]={...list[idx],idadi:list[idx].idadi+idadiOngeza,bei_nun:bNun||list[idx].bei_nun,bei_uuz:bUuz||list[idx].bei_uuz,kat:r.kat.trim()||list[idx].kat};
+        }else{
+          list.push({id:uid(),bidhaa:r.bidhaa.trim(),kat:r.kat.trim(),idadi:idadiOngeza,bei_nun:bNun,bei_uuz:bUuz,min});
+        }
+      }
+      return list;
+    });
+    toast(`Bidhaa ${valid.length} zimeongezwa ✓`);
+    onClose();
+  }
+
+  return h(Modal,{title:"Ongeza Bidhaa kwa Wingi",onClose,wide:true,
+    footer:h(Fragment,null,
+      h("button",{className:"btn btn-secondary",onClick:onClose},"Ghairi"),
+      h("button",{className:"btn btn-primary",onClick:save},`Hifadhi Bidhaa (${valid.length})`)
+    )},
+    h("div",{style:{fontSize:12,color:"var(--text3)",marginBottom:12}},"Jaza mistari kadhaa hapa chini. Bidhaa yenye jina lililopo tayari itaongezewa idadi; jina jipya litaongezwa kama bidhaa mpya."),
+    ...rows.map((r,i)=>h("div",{key:r._k,className:"table-card",style:{padding:14,marginBottom:10}},
+      h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}},
+        h("span",{style:{fontSize:12,fontWeight:700,color:"var(--text3)"}},`Bidhaa #${i+1}`),
+        rows.length>1&&h("button",{className:"btn btn-ghost btn-sm btn-icon",onClick:()=>rmRow(i)},"✕")
+      ),
+      h(Row,null,
+        h(Field,{label:"Jina la Bidhaa"},h(Inp,{value:r.bidhaa,onChange:v=>upd(i,"bidhaa",v),placeholder:"mfano: Chrisp"})),
+        h(Field,{label:"Kategoria"},h(Inp,{value:r.kat,onChange:v=>upd(i,"kat",v),placeholder:"mfano: Vitafunio"}))
+      ),
+      h(Row,null,
+        h(Field,{label:"Idadi"},h(Inp,{type:"number",min:0,value:r.idadi,onChange:v=>upd(i,"idadi",v),placeholder:"0"})),
+        h(Field,{label:"Kiwango Min"},h(Inp,{type:"number",min:0,value:r.min,onChange:v=>upd(i,"min",v),placeholder:"10"}))
+      ),
+      h(Row,null,
+        h(Field,{label:"Bei Kununulia"},h(Inp,{type:"number",value:r.bei_nun,onChange:v=>upd(i,"bei_nun",v),placeholder:"0"})),
+        h(Field,{label:"Bei Uuzaji"},h(Inp,{type:"number",value:r.bei_uuz,onChange:v=>upd(i,"bei_uuz",v),placeholder:"0"}))
+      ),
+      (r.idadi&&r.bei_nun)&&h("div",{style:{fontSize:12,color:"var(--text3)"}},"Thamani mtaji: ",h("b",{style:{color:"var(--text)"}},fmt((+r.idadi||0)*(+r.bei_nun||0))))
+    )),
+    h("button",{className:"btn btn-secondary",onClick:addRow,style:{width:"100%",justifyContent:"center"}},"+ Ongeza Mstari Mwingine"),
+    valid.length>0&&h("div",{className:"calc-box",style:{marginTop:14}},
+      h("div",{className:"calc-item"},"Bidhaa halali: ",h("strong",null,valid.length)),
+      h("div",{className:"calc-item"},"Jumla Thamani Mtaji: ",h("strong",null,fmt(totalMtaji)))
+    )
   );
 }
 
