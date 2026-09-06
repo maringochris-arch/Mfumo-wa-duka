@@ -1,0 +1,16 @@
+{
+  "name": "Mfumo wa Duka",
+  "short_name": "Duka",
+  "description": "Mfumo kamili wa usimamizi wa biashara na duka",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#15803d",
+  "theme_color": "#15803d",
+  "icons": [
+    {
+      "src": "icon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    }
+  ]
+}

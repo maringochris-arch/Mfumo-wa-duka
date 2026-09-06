@@ -1,0 +1,14 @@
+{
+  "name": "mfumo-wa-duka",
+  "version": "1.0.0",
+  "description": "Mfumo kamili wa usimamizi wa biashara na duka",
+  "type": "module",
+  "scripts": {
+    "dev": "node server.js",
+    "build": "node -e \"console.log('Build completed successfully')\"",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}
